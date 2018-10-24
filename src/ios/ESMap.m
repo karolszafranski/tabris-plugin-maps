@@ -8,8 +8,8 @@
 
 #import "ESMap.h"
 #import "ESMarker.h"
-#import "TabrisImage.h"
 #import <MapKit/MapKit.h>
+#import <Tabris/BasicObject+Shorthands.h>
 
 @interface MKMapView (Tabris)
 - (NSSet *)visibleAnnotations;
@@ -52,8 +52,8 @@
 @synthesize changecameraListener = _changecameraListener;
 @synthesize showMyLocation = _showMyLocation;
 
-- (instancetype)initWithObjectId:(NSString *)objectId properties:(NSDictionary *)properties andClient:(TabrisClient *)client {
-    self = [super initWithObjectId:objectId properties:properties andClient:client];
+- (instancetype)initWithObjectId:(NSString *)objectId properties:(NSDictionary *)properties inContext:(id<TabrisContext>)context {
+    self = [super initWithObjectId:objectId properties:properties inContext:context];
     if (self) {
         NSString *mapType = [properties objectForKey:@"mapType"];
         if (mapType) {
@@ -75,13 +75,7 @@
         if (showMyLocation) {
             self.showMyLocation = [showMyLocation boolValue];
         }
-    }
-    return self;
-}
 
-- (instancetype)initWithObjectId:(NSString *)objectId andClient:(TabrisClient *)client {
-    self = [super initWithObjectId:objectId andClient:client];
-    if (self) {
         self.map = [[MKMapView alloc] init];
         self.map.delegate = self;
         self.map.showsPointsOfInterest = NO;
@@ -96,6 +90,10 @@
         [self registerSelector:@selector(moveToRegion:) forCall:@"moveToRegion"];
         [self registerSelector:@selector(addMarker:) forCall:@"addMarker"];
         [self registerSelector:@selector(removeMarker:) forCall:@"removeMarker"];
+        [self defineWidgetView:self.map];
+
+        self.interactiveWhenEnabled = YES;
+        [self adjustUserInteraction];
     }
     return self;
 }
@@ -118,10 +116,6 @@
     [set addObject:@"cameraMovedListener"];
     [set addObject:@"changecameraListener"];
     return set;
-}
-
-- (UIView *)view {
-    return self.map;
 }
 
 - (void)regionWillChangeByUserInteraction:(UIGestureRecognizer*)gestureRecognizer {
@@ -355,7 +349,9 @@
     if (!markerId) {
         return nil;
     }
-    id<RemoteObject> marker = [self.client objectById:markerId];
+
+
+    id<RemoteObject> marker = [self objectById:markerId];
     if(![marker isKindOfClass:[ESMarker class]]) {
         return nil;
     }
@@ -375,8 +371,8 @@
     }
     if (self.tapListener) {
         CLLocationCoordinate2D coordinate = [self.map convertPoint:touchPoint toCoordinateFromView:self.map];
-        Message<Notification> *message = [[self notifications] forObject:self];
-        [message fireEvent:@"tap" withAttributes:@{@"position":@[@(coordinate.latitude), @(coordinate.longitude)]}];
+        [self fireEventNamed:@"tap"
+              withAttributes:@{@"position":@[@(coordinate.latitude), @(coordinate.longitude)]}];
     }
 }
 
@@ -384,29 +380,26 @@
     CGPoint touchPoint = [sender locationInView:self.map];
     if (self.longpressListener && sender.state == UIGestureRecognizerStateBegan) {
         CLLocationCoordinate2D coordinate = [self.map convertPoint:touchPoint toCoordinateFromView:self.map];
-        Message<Notification> *message = [[self notifications] forObject:self];
-        [message fireEvent:@"longpress" withAttributes:@{@"position":@[@(coordinate.latitude), @(coordinate.longitude)]}];
+        [self fireEventNamed:@"longpress"
+              withAttributes:@{@"position":@[@(coordinate.latitude), @(coordinate.longitude)]}];
     }
 }
 
 - (void)mapViewDidFinishRenderingMap:(MKMapView *)mapView fullyRendered:(BOOL)fullyRendered {
     if (self.readyListener) {
         dispatch_once(&_readyEventToken, ^{
-            Message<Notification> *message = [[self notifications] forObject:self];
-            [message fireEvent:@"ready" withAttributes:@{}];
+            [self fireEventNamed:@"ready" withAttributes:@{}];
         });
     }
 }
 
 - (void)mapView:(MKMapView *)mapView regionDidChangeAnimated:(BOOL)animated {
     if (self.changecameraListener) {
-        Message<Notification> *message = [[self notifications] forObject:self];
-        [message fireEvent:@"changecamera" withAttributes:self.camera];
+        [self fireEventNamed:@"changecamera" withAttributes:self.camera];
     }
     if (self.cameraMovedListener && self.gestureWasRecognized) {
         self.gestureWasRecognized = NO;
-        Message<Notification> *message = [[self notifications] forObject:self];
-        [message fireEvent:@"cameraMoved" withAttributes:@{@"camera":self.camera}];
+        [self fireEventNamed:@"cameraMoved" withAttributes:@{@"camera":self.camera}];
     }
 }
 
@@ -443,7 +436,7 @@
 }
 
 - (void)setAnnotationViewImage:(MKAnnotationView *)view image: (NSArray *) image {
-    __block TabrisImage *tabrisImage = [[TabrisImage alloc] initWithTabrisClient:self.client propertiesArray:image];
+    __block TabrisImage *tabrisImage = [self tabrisImageWithProperties:image];
     [tabrisImage getImage:^(UIImage *uiImage, NSError *error) {
         view.image = error ? nil : uiImage;
         tabrisImage = nil;
